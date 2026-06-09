@@ -1,0 +1,34 @@
+{
+  "name": "skills-tui",
+  "version": "1.0.0",
+  "description": "Interactive TUI for managing AI agent skills",
+  "main": "dist/index.js",
+  "bin": {
+    "skills-tui": "bin/skills-tui.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.tsx",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["skills", "tui", "cli", "agent-skills", "skill-manager"],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "boxen": "^8.0.1",
+    "chalk": "^5.6.2",
+    "cli-truncate": "^6.0.0",
+    "gradient-string": "^3.0.0",
+    "ink": "^7.0.5",
+    "ora": "^9.4.0",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@types/react": "^19.2.17",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
