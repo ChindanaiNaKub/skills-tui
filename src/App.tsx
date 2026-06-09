@@ -51,23 +51,6 @@ export const App: React.FC = () => {
     if (loaded.length > 0 && !activeSkillName) setActiveSkillName(loaded[0].name);
   }, []);
 
-  // Scroll window adjustment
-  useEffect(() => {
-    const total = filteredSkills.length;
-    if (total === 0 || showDetails) {
-      return;
-    }
-    if (activeIndex < scrollOffset.current) {
-      scrollOffset.current = activeIndex;
-    } else if (activeIndex >= scrollOffset.current + listHeight) {
-      scrollOffset.current = activeIndex - listHeight + 1;
-    }
-    if (scrollOffset.current < 0) scrollOffset.current = 0;
-    if (scrollOffset.current > total - listHeight) {
-      scrollOffset.current = Math.max(0, total - listHeight);
-    }
-  }, [activeIndex, filteredSkills.length, listHeight, showDetails]);
-
   const applyFilters = useCallback((src: SkillWithMeta[], q: string, tab: Tab): SkillWithMeta[] => {
     let filtered = src;
     if (tab === 'installed') filtered = filtered.filter(s => !s.hasUpdate);
@@ -283,6 +266,25 @@ export const App: React.FC = () => {
         <Box marginTop={2}><Text dimColor>Esc: Back | q: Quit</Text></Box>
       </Box>
     );
+  }
+
+  // Compute scroll offset synchronously during render so viewport
+  // scrolls in the same frame as the highlight moves.
+  {
+    const total = filteredSkills.length;
+    if (total === 0) {
+      scrollOffset.current = 0;
+    } else {
+      if (activeIndex < scrollOffset.current) {
+        scrollOffset.current = activeIndex;
+      } else if (activeIndex >= scrollOffset.current + listHeight) {
+        scrollOffset.current = activeIndex - listHeight + 1;
+      }
+      if (scrollOffset.current < 0) scrollOffset.current = 0;
+      if (scrollOffset.current > total - listHeight) {
+        scrollOffset.current = Math.max(0, total - listHeight);
+      }
+    }
   }
 
   // Build visible row slice
