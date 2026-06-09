@@ -37,8 +37,22 @@ export const App: React.FC = () => {
     selectedNames: new Set<string>(),
     activeTab: 'all' as Tab,
     searchQuery: '',
+    listHeight: 32,
   });
-  refs.current = { activeSkillName, filteredSkills, searchMode, confirmDialog, showDetails, selectedNames, activeTab, searchQuery };
+  refs.current = { activeSkillName, filteredSkills, searchMode, confirmDialog, showDetails, selectedNames, activeTab, searchQuery, listHeight };
+
+  // --- scroll-viewport helper: keep the active row inside the visible window ---
+  const clampScrollForIndex = (targetIndex: number, total: number, lh: number) => {
+    if (total === 0) { scrollOffset.current = 0; return; }
+    if (targetIndex < scrollOffset.current) {
+      scrollOffset.current = targetIndex;
+    } else if (targetIndex >= scrollOffset.current + lh) {
+      scrollOffset.current = targetIndex - lh + 1;
+    }
+    if (scrollOffset.current < 0) scrollOffset.current = 0;
+    const maxOff = Math.max(0, total - lh);
+    if (scrollOffset.current > maxOff) scrollOffset.current = maxOff;
+  };
 
   const resolvedIndex = activeSkillName ? filteredSkills.findIndex(s => s.name === activeSkillName) : -1;
   const activeIndex = resolvedIndex >= 0 ? resolvedIndex : 0;
@@ -70,6 +84,7 @@ export const App: React.FC = () => {
     const loaded = loadSkills();
     const r = refs.current;
     const newFiltered = applyFilters(loaded, r.searchQuery, r.activeTab);
+    scrollOffset.current = 0;
     setSkills(loaded);
     setFilteredSkills(newFiltered);
 
@@ -123,6 +138,7 @@ export const App: React.FC = () => {
     if (r.searchMode) {
       if (key.return) {
         const newFiltered = applyFilters(skills, searchInput, r.activeTab);
+        scrollOffset.current = 0;
         setSearchQuery(searchInput);
         setFilteredSkills(newFiltered);
         setActiveSkillName(newFiltered[0]?.name ?? null);
@@ -146,26 +162,24 @@ export const App: React.FC = () => {
     }
 
     if (key.upArrow || input === 'k') {
-      setActiveSkillName(() => {
-        const len = r.filteredSkills.length;
-        if (len === 0) return null;
-        const name = r.activeSkillName;
-        const idx = name ? r.filteredSkills.findIndex(s => s.name === name) : -1;
-        const prevIdx = idx >= 0 ? (((idx - 1) % len) + len) % len : 0;
-        return r.filteredSkills[prevIdx]?.name ?? null;
-      });
+      const len = r.filteredSkills.length;
+      if (len === 0) return;
+      const name = r.activeSkillName;
+      const idx = name ? r.filteredSkills.findIndex(s => s.name === name) : -1;
+      const prevIdx = idx >= 0 ? (((idx - 1) % len) + len) % len : 0;
+      clampScrollForIndex(prevIdx, len, r.listHeight);
+      setActiveSkillName(r.filteredSkills[prevIdx]?.name ?? null);
       return;
     }
 
     if (key.downArrow || input === 'j') {
-      setActiveSkillName(() => {
-        const len = r.filteredSkills.length;
-        if (len === 0) return null;
-        const name = r.activeSkillName;
-        const idx = name ? r.filteredSkills.findIndex(s => s.name === name) : -1;
-        const nextIdx = idx >= 0 ? (idx + 1) % len : 0;
-        return r.filteredSkills[nextIdx]?.name ?? null;
-      });
+      const len = r.filteredSkills.length;
+      if (len === 0) return;
+      const name = r.activeSkillName;
+      const idx = name ? r.filteredSkills.findIndex(s => s.name === name) : -1;
+      const nextIdx = idx >= 0 ? (idx + 1) % len : 0;
+      clampScrollForIndex(nextIdx, len, r.listHeight);
+      setActiveSkillName(r.filteredSkills[nextIdx]?.name ?? null);
       return;
     }
 
@@ -227,8 +241,10 @@ export const App: React.FC = () => {
       const ci = TABS.indexOf(r.activeTab);
       const newTab = TABS[(ci + 1) % TABS.length];
       const newFiltered = applyFilters(skills, r.searchQuery, newTab);
+      const firstIdx = 0;
+      scrollOffset.current = 0;
       setActiveTab(newTab);
-      setActiveSkillName(newFiltered[0]?.name ?? null);
+      setActiveSkillName(newFiltered[firstIdx]?.name ?? null);
       setFilteredSkills(newFiltered);
       setSearchQuery('');
       return;
