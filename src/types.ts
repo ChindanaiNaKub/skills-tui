@@ -7,6 +7,7 @@ export interface Skill {
   skillFolderHash: string;
   installedAt: string;
   updatedAt: string;
+  latestCommitDate?: string;
   pluginName?: string;
 }
 

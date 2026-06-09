@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Text, Box, useInput, useApp, useStdout } from 'ink';
 import { SkillWithMeta, Tab } from './types.js';
 import { loadSkills } from './data.js';
-import { removeSkills } from './actions.js';
+import { removeSkills, updateSkills } from './actions.js';
 
 const TABS: Tab[] = ['installed', 'updates', 'all'];
 const OVERHEAD_ROWS = 8;
@@ -100,7 +100,12 @@ export const App: React.FC = () => {
           setLastActionResult(msg || 'No skills removed');
           reloadSkills();
         } else {
-          setLastActionResult('Update not yet implemented - use `npx skills update`');
+          const result = updateSkills(skillNames);
+          let msg = '';
+          if (result.success.length > 0) msg += `Updated: ${result.success.join(', ')}`;
+          if (result.failed.length > 0) msg += (msg ? ' | ' : '') + `Failed: ${result.failed.join(', ')}`;
+          setLastActionResult(msg || 'No skills updated');
+          reloadSkills();
         }
         setConfirmDialog(null);
         return;
