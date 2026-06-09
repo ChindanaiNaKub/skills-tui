@@ -29,12 +29,12 @@ export type Tab = 'installed' | 'updates' | 'all';
 export interface AppState {
   skills: SkillWithMeta[];
   filteredSkills: SkillWithMeta[];
-  selectedIndices: Set<number>;
+  selectedNames: Set<string>;
   activeTab: Tab;
   searchQuery: string;
   loading: boolean;
   error: string | null;
   showDetails: boolean;
-  detailIndex: number | null;
+  detailSkillName: string | null;
   confirmAction: 'remove' | 'update' | null;
 }

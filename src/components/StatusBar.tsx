@@ -8,7 +8,7 @@ interface StatusBarProps {
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({ state, activeIndex }) => {
-  const { skills, filteredSkills, selectedIndices, loading, error, showDetails } = state;
+  const { skills, filteredSkills, selectedNames, loading, error, showDetails } = state;
   
   if (showDetails) {
     return (
@@ -34,7 +34,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ state, activeIndex }) => {
     );
   }
 
-  const selectedCount = selectedIndices.size;
+  const selectedCount = selectedNames.size;
   const totalCount = filteredSkills.length;
   const currentSkill = filteredSkills[activeIndex];
 
