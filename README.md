@@ -7,13 +7,13 @@ Interactive terminal UI for managing AI agent skills. Browse, search, multi-sele
 ## Install
 
 ```bash
-npm install -g skills-tui
+npm install -g @prabiscute/skills-tui
 ```
 
 Or run without installing:
 
 ```bash
-npx skills-tui
+npx @prabiscute/skills-tui
 ```
 
 ## Usage
