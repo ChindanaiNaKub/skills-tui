@@ -1,6 +1,8 @@
 # skills-tui
 
-Interactive terminal UI for managing AI agent skills. Browse, search, multi-select, delete, and update skills installed via the [`skills` CLI](https://skills.sh).
+![assets/skills-tui.png](assets/skills-tui.png)
+
+Interactive terminal UI for managing AI agent skills. Browse, search, multi-select, delete, and update skills installed via the [`skills`](https://skills.sh).
 
 ## Install
 
@@ -46,12 +48,9 @@ skills-tui
 
 ## How it works
 
-Reads from `~/.agents/.skill-lock.json` (managed by the `skills` CLI) and operates on `~/.agents/skills/`. Uses [Ink](https://github.com/vadimdemedes/ink) for the React-based terminal UI.
+Reads from `~/.agents/.skill-lock.json` (managed by the `skills`) and operates on `~/.agents/skills/`. Uses [Ink](https://github.com/vadimdemedes/ink) for the React-based terminal UI.
 
 ## Related
 
-- [`skills` CLI](https://skills.sh) — Skill package manager (`npx skills`)
+- [`skills`](https://skills.sh) — Skill package manager (`npx skills`)
 
-## License
-
-MIT
