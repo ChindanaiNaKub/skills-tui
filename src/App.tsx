@@ -15,13 +15,13 @@ export const App: React.FC = () => {
 
   const [skills, setSkills] = useState<SkillWithMeta[]>([]);
   const [filteredSkills, setFilteredSkills] = useState<SkillWithMeta[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [selectedIndices, setSelected] = useState<Set<number>>(new Set());
+  const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
+  const [selectedNames, setSelected] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<Tab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-  const [detailIndex, setDetailIndex] = useState<number | null>(null);
+  const [detailSkillName, setDetailSkillName] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{action: 'remove' | 'update'; skillNames: string[]} | null>(null);
   const [lastActionResult, setLastActionResult] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
@@ -29,22 +29,26 @@ export const App: React.FC = () => {
 
   // Refs for latest state in useInput callback
   const refs = useRef({
-    activeIndex: 0,
+    activeSkillName: null as string | null,
     filteredSkills: [] as SkillWithMeta[],
     searchMode: false,
     confirmDialog: null as {action: 'remove' | 'update'; skillNames: string[]} | null,
     showDetails: false,
-    selectedIndices: new Set<number>(),
+    selectedNames: new Set<string>(),
     activeTab: 'all' as Tab,
     searchQuery: '',
   });
-  refs.current = { activeIndex, filteredSkills, searchMode, confirmDialog, showDetails, selectedIndices, activeTab, searchQuery };
+  refs.current = { activeSkillName, filteredSkills, searchMode, confirmDialog, showDetails, selectedNames, activeTab, searchQuery };
+
+  const resolvedIndex = activeSkillName ? filteredSkills.findIndex(s => s.name === activeSkillName) : -1;
+  const activeIndex = resolvedIndex >= 0 ? resolvedIndex : 0;
 
   // Load skills
   useEffect(() => {
     const loaded = loadSkills();
     setSkills(loaded);
     setFilteredSkills(loaded);
+    if (loaded.length > 0 && !activeSkillName) setActiveSkillName(loaded[0].name);
   }, []);
 
   // Scroll window adjustment
@@ -82,8 +86,24 @@ export const App: React.FC = () => {
   const reloadSkills = useCallback(() => {
     const loaded = loadSkills();
     const r = refs.current;
+    const newFiltered = applyFilters(loaded, r.searchQuery, r.activeTab);
     setSkills(loaded);
-    setFilteredSkills(applyFilters(loaded, r.searchQuery, r.activeTab));
+    setFilteredSkills(newFiltered);
+
+    // Purge selected names that no longer exist in the loaded list
+    const validNames = new Set(loaded.map(s => s.name));
+    setSelected(prev => {
+      const next = new Set<string>();
+      for (const n of prev) {
+        if (validNames.has(n)) next.add(n);
+      }
+      return next;
+    });
+
+    // Keep activeSkillName if still valid, otherwise fall back to first item
+    if (r.activeSkillName && !validNames.has(r.activeSkillName)) {
+      setActiveSkillName(newFiltered[0]?.name ?? null);
+    }
   }, [applyFilters]);
 
   useInput((input, key) => {
@@ -119,9 +139,10 @@ export const App: React.FC = () => {
 
     if (r.searchMode) {
       if (key.return) {
+        const newFiltered = applyFilters(skills, searchInput, r.activeTab);
         setSearchQuery(searchInput);
-        setFilteredSkills(applyFilters(skills, searchInput, r.activeTab));
-        setActiveIndex(0);
+        setFilteredSkills(newFiltered);
+        setActiveSkillName(newFiltered[0]?.name ?? null);
         setSearchMode(false);
         return;
       }
@@ -142,66 +163,73 @@ export const App: React.FC = () => {
     }
 
     if (key.upArrow || input === 'k') {
-      setActiveIndex(prev => {
+      setActiveSkillName(() => {
         const len = r.filteredSkills.length;
-        if (len === 0) return prev;
-        return (((prev - 1) % len) + len) % len;
+        if (len === 0) return null;
+        const name = r.activeSkillName;
+        const idx = name ? r.filteredSkills.findIndex(s => s.name === name) : -1;
+        const prevIdx = idx >= 0 ? (((idx - 1) % len) + len) % len : 0;
+        return r.filteredSkills[prevIdx]?.name ?? null;
       });
       return;
     }
 
     if (key.downArrow || input === 'j') {
-      setActiveIndex(prev => {
+      setActiveSkillName(() => {
         const len = r.filteredSkills.length;
-        if (len === 0) return prev;
-        return (prev + 1) % len;
+        if (len === 0) return null;
+        const name = r.activeSkillName;
+        const idx = name ? r.filteredSkills.findIndex(s => s.name === name) : -1;
+        const nextIdx = idx >= 0 ? (idx + 1) % len : 0;
+        return r.filteredSkills[nextIdx]?.name ?? null;
       });
       return;
     }
 
     if (input === ' ') {
-      setSelected(prev => {
-        const next = new Set(prev);
-        if (next.has(r.activeIndex)) {
-          next.delete(r.activeIndex);
-        } else {
-          next.add(r.activeIndex);
-        }
-        return next;
-      });
+      const name = r.activeSkillName;
+      if (name) {
+        setSelected(prev => {
+          const next = new Set(prev);
+          if (next.has(name)) {
+            next.delete(name);
+          } else {
+            next.add(name);
+          }
+          return next;
+        });
+      }
       return;
     }
 
     if (key.return) {
       if (r.showDetails) {
         setShowDetails(false);
-        setDetailIndex(null);
+        setDetailSkillName(null);
       } else {
-        const detailSkill = r.filteredSkills[r.activeIndex];
-        if (detailSkill) {
+        const name = r.activeSkillName;
+        if (name) {
           setShowDetails(true);
-          setDetailIndex(r.activeIndex);
+          setDetailSkillName(name);
         }
       }
       return;
     }
 
     if (input === 'u') {
-      const indices = Array.from(r.selectedIndices);
-      const cur = r.activeIndex;
-      if (indices.length === 0 && r.filteredSkills[cur]) indices.push(cur);
-      if (indices.length > 0) {
-        setConfirmDialog({ action: 'update', skillNames: indices.map(i => r.filteredSkills[i].name) });
+      const names = Array.from(r.selectedNames);
+      if (names.length === 0 && r.activeSkillName) names.push(r.activeSkillName);
+      if (names.length > 0) {
+        setConfirmDialog({ action: 'update', skillNames: names });
       }
       return;
     }
 
     if (input === 'd') {
-      const indices = Array.from(r.selectedIndices);
-      const cur = r.activeIndex;
-      if (indices.length === 0 && r.filteredSkills[cur]) indices.push(cur);
-      if (indices.length > 0) {
-        setConfirmDialog({ action: 'remove', skillNames: indices.map(i => r.filteredSkills[i].name) });
+      const names = Array.from(r.selectedNames);
+      if (names.length === 0 && r.activeSkillName) names.push(r.activeSkillName);
+      if (names.length > 0) {
+        setConfirmDialog({ action: 'remove', skillNames: names });
       }
       return;
     }
@@ -215,9 +243,10 @@ export const App: React.FC = () => {
     if (key.tab) {
       const ci = TABS.indexOf(r.activeTab);
       const newTab = TABS[(ci + 1) % TABS.length];
+      const newFiltered = applyFilters(skills, r.searchQuery, newTab);
       setActiveTab(newTab);
-      setActiveIndex(0);
-      setFilteredSkills(applyFilters(skills, r.searchQuery, newTab));
+      setActiveSkillName(newFiltered[0]?.name ?? null);
+      setFilteredSkills(newFiltered);
       setSearchQuery('');
       return;
     }
@@ -225,7 +254,7 @@ export const App: React.FC = () => {
     if (key.escape) {
       if (r.showDetails) {
         setShowDetails(false);
-        setDetailIndex(null);
+        setDetailSkillName(null);
       } else {
         exit();
       }
@@ -237,7 +266,7 @@ export const App: React.FC = () => {
 
   // ---- RENDER (all hooks are above, no conditional returns before this) ----
 
-  const detailSkill = showDetails && detailIndex !== null ? filteredSkills[detailIndex] : null;
+  const detailSkill = showDetails && detailSkillName ? filteredSkills.find(s => s.name === detailSkillName) ?? null : null;
 
   if (detailSkill) {
     return (
@@ -302,8 +331,8 @@ export const App: React.FC = () => {
 
         {filteredSkills.slice(start, end).map((skill, sliceIdx) => {
           const idx = start + sliceIdx;
-          const isSelected = selectedIndices.has(idx);
-          const isActive = idx === activeIndex;
+          const isSelected = selectedNames.has(skill.name);
+          const isActive = skill.name === activeSkillName;
           const indicator = isActive ? '▸ ' : '  ';
           const checkbox = isSelected ? '[x]' : '[ ]';
           const name = skill.name.slice(0, 30).padEnd(30);
@@ -335,7 +364,7 @@ export const App: React.FC = () => {
 
       <Box paddingX={1} borderStyle="single" borderColor="dim" marginTop={1}>
         <Text dimColor>
-          {selectedIndices.size > 0 ? `Selected: ${selectedIndices.size} ` : ''}
+          {selectedNames.size > 0 ? `Selected: ${selectedNames.size} ` : ''}
           {filteredSkills.length} skills | {activeIndex + 1}/{filteredSkills.length}
         </Text>
         <Box marginLeft={2}>
