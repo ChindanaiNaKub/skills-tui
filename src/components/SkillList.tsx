@@ -42,12 +42,14 @@ export const SkillList: React.FC<SkillListProps> = ({
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold underline>{skill.name}</Text>
-        <Text dimColor>Source:</Text> <Text> {skill.source}</Text>
-        <Text dimColor>Repo:</Text> <Text> {skill.sourceUrl}</Text>
-        <Text dimColor>Path:</Text> <Text> {skill.skillPath}</Text>
-        <Text dimColor>Installed:</Text> <Text> {new Date(skill.installedAt).toLocaleString()}</Text>
-        <Text dimColor>Updated:</Text> <Text> {new Date(skill.updatedAt).toLocaleString()}</Text>
-        <Text dimColor>Hash:</Text> <Text dimColor> {skill.skillFolderHash}</Text>
+        {skill.description && <><Text dimColor>Description:</Text> <Text> {skill.description}</Text></>}
+        <Text dimColor>Path:</Text> <Text> {skill.diskPath}</Text>
+        {skill.source && <><Text dimColor>Source:</Text> <Text> {skill.source}</Text></>}
+        {skill.sourceUrl && <><Text dimColor>Repo:</Text> <Text> {skill.sourceUrl}</Text></>}
+        {skill.skillPath && <><Text dimColor>Skill Path:</Text> <Text> {skill.skillPath}</Text></>}
+        {skill.installedAt && <><Text dimColor>Installed:</Text> <Text> {new Date(skill.installedAt).toLocaleString()}</Text></>}
+        {skill.updatedAt && <><Text dimColor>Updated:</Text> <Text> {new Date(skill.updatedAt).toLocaleString()}</Text></>}
+        {skill.skillFolderHash && <><Text dimColor>Hash:</Text> <Text dimColor> {skill.skillFolderHash}</Text></>}
         {skill.pluginName && <><Text dimColor>Plugin:</Text> <Text> {skill.pluginName}</Text></>}
         {skill.hasUpdate && <Text color="green" bold>Update available!</Text>}
         <Box marginTop={1}>
@@ -82,8 +84,8 @@ export const SkillList: React.FC<SkillListProps> = ({
           if (skill.hasUpdate) nameColor = 'green';
           
           const name = truncate(skill.name, 30);
-          const source = truncate(skill.source, 40);
-          const date = new Date(skill.updatedAt).toLocaleDateString();
+          const source = truncate(skill.source ?? 'unknown', 40);
+          const date = skill.updatedAt ? new Date(skill.updatedAt).toLocaleDateString() : '—';
           
           return (
             <Box 

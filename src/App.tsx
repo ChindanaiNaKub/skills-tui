@@ -73,7 +73,7 @@ export const App: React.FC = () => {
       const lq = q.toLowerCase();
       filtered = filtered.filter(s =>
         s.name.toLowerCase().includes(lq) ||
-        s.source.toLowerCase().includes(lq) ||
+        (s.source?.toLowerCase().includes(lq)) ||
         (s.pluginName?.toLowerCase().includes(lq))
       );
     }
@@ -271,13 +271,16 @@ export const App: React.FC = () => {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Text bold underline>{detailSkill.name}</Text>
-        <Box marginTop={1}><Text dimColor>Source:</Text><Text> {detailSkill.source}</Text></Box>
-        <Box><Text dimColor>Repo:</Text><Text> {detailSkill.sourceUrl}</Text></Box>
-        <Box><Text dimColor>Path:</Text><Text> {detailSkill.skillPath}</Text></Box>
-        <Box><Text dimColor>Installed:</Text><Text> {new Date(detailSkill.installedAt).toLocaleString()}</Text></Box>
-        <Box><Text dimColor>Updated:</Text><Text> {new Date(detailSkill.updatedAt).toLocaleString()}</Text></Box>
-        <Box><Text dimColor>Hash:</Text><Text dimColor> {detailSkill.skillFolderHash}</Text></Box>
+        {detailSkill.description && <Box marginTop={1}><Text dimColor>Description:</Text><Text> {detailSkill.description}</Text></Box>}
+        <Box marginTop={1}><Text dimColor>Path:</Text><Text> {detailSkill.diskPath}</Text></Box>
+        {detailSkill.source && <Box><Text dimColor>Source:</Text><Text> {detailSkill.source}</Text></Box>}
+        {detailSkill.sourceUrl && <Box><Text dimColor>Repo:</Text><Text> {detailSkill.sourceUrl}</Text></Box>}
+        {detailSkill.skillPath && <Box><Text dimColor>Skill Path:</Text><Text> {detailSkill.skillPath}</Text></Box>}
+        {detailSkill.installedAt && <Box><Text dimColor>Installed:</Text><Text> {new Date(detailSkill.installedAt).toLocaleString()}</Text></Box>}
+        {detailSkill.updatedAt && <Box><Text dimColor>Updated:</Text><Text> {new Date(detailSkill.updatedAt).toLocaleString()}</Text></Box>}
+        {detailSkill.skillFolderHash && <Box><Text dimColor>Hash:</Text><Text dimColor> {detailSkill.skillFolderHash}</Text></Box>}
         {detailSkill.pluginName && <Box><Text dimColor>Plugin:</Text><Text> {detailSkill.pluginName}</Text></Box>}
+        {detailSkill.inferred && <Box><Text dimColor>Inferred from disk</Text></Box>}
         {detailSkill.hasUpdate && <Box marginTop={1}><Text color="green" bold>Update available!</Text></Box>}
         <Box marginTop={2}><Text dimColor>Esc: Back | q: Quit</Text></Box>
       </Box>
@@ -319,7 +322,7 @@ export const App: React.FC = () => {
     <Box flexDirection="column">
       <Box paddingX={1} paddingY={1} borderStyle="single" borderColor="dim">
         <Text bold color="cyan">Skills Manager</Text>
-        <Box marginLeft={2}><Text dimColor>Interactive skill manager for ~/.agents/skills</Text></Box>
+        <Box marginLeft={2}><Text dimColor>Interactive skill manager — ~/.agents/skills, ~/.config/opencode/skills, ~/.claude/skills, and project-local dirs</Text></Box>
       </Box>
 
       {searchMode && (
@@ -347,15 +350,14 @@ export const App: React.FC = () => {
           </Box>
         )}
 
-        {filteredSkills.slice(start, end).map((skill, sliceIdx) => {
-          const idx = start + sliceIdx;
+        {filteredSkills.slice(start, end).map((skill) => {
           const isSelected = selectedNames.has(skill.name);
           const isActive = skill.name === activeSkillName;
           const indicator = isActive ? '▸ ' : '  ';
           const checkbox = isSelected ? '[x]' : '[ ]';
           const name = skill.name.slice(0, 30).padEnd(30);
-          const source = skill.source.slice(0, 30).padEnd(30);
-          const date = new Date(skill.updatedAt).toLocaleDateString();
+          const source = (skill.source ?? 'unknown').slice(0, 30).padEnd(30);
+          const date = skill.updatedAt ? new Date(skill.updatedAt).toLocaleDateString() : '—';
           const updateIcon = skill.hasUpdate ? ' ↻' : '  ';
 
           return (
