@@ -1,8 +1,8 @@
-export interface Skill {
-  name: string;
+/** Persisted lock entry — only fields written to .skill-lock.json */
+export interface SkillLockEntry {
   source: string;
-  sourceType: 'github';
-  sourceUrl: string;
+  sourceType: 'github' | 'git' | 'unknown';
+  sourceUrl?: string;
   skillPath: string;
   skillFolderHash: string;
   installedAt: string;
@@ -11,9 +11,26 @@ export interface Skill {
   pluginName?: string;
 }
 
+/** Runtime skill — enriched with disk-inferred fields */
+export interface Skill {
+  name: string;
+  diskPath: string;
+  source?: string;
+  sourceType?: 'github' | 'git' | 'unknown';
+  sourceUrl?: string;
+  skillPath?: string;
+  skillFolderHash?: string;
+  installedAt?: string;
+  updatedAt?: string;
+  latestCommitDate?: string;
+  pluginName?: string;
+  description?: string;
+  inferred?: boolean;
+}
+
 export interface SkillLock {
   version: number;
-  skills: Record<string, Skill>;
+  skills: Record<string, SkillLockEntry>;
   dismissed?: Record<string, boolean>;
   lastSelectedAgents?: string[];
 }
