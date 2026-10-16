@@ -3,7 +3,16 @@
 ## Glossary
 
 **Skill**
-A versioned agent skill installed from a git repository or discovered on disk. Skills can live in multiple directories: `~/.agents/skills/`, `~/.config/opencode/skills/`, `~/.claude/skills/`, and project-local `.agents/skills/` and `.claude/skills/`. Each skill has a unique `name` that serves as the stable identifier across the application. Skills are merged from two sources: the lock file (`~/.agents/.skill-lock.json`) and disk inference (scanning known directories).
+A versioned agent skill installed from a git repository or discovered on disk. Each skill has a unique `name` that serves as the stable identifier across the application. Skills are merged from two sources: the lock file (`~/.agents/.skill-lock.json`) and disk inference (scanning known directories).
+
+**Skill Location**
+One place on disk a skill was found — one entry per agent directory. A skill usually has many: the real directory under `~/.agents/skills/` plus symlinks in `~/.claude/skills/`, `~/.codex/skills/`, `~/.cursor/skills/`, `~/.config/opencode/skills/`, etc. Locations are tracked per skill (`Skill.locations`) and shown as an agent badge in the list (`claude,codex+5`, where `*` marks a project-local dir). The primary `diskPath` prefers a real (non-symlink) directory.
+
+**Skill Directories**
+Resolved by `src/paths.ts` from a built-in list of known global agent dirs plus project-local dirs under the current working directory, plus any extra paths in the `SKILLS_TUI_DIRS` env var (path-delimited). Missing dirs are skipped and dot-directories (e.g. Codex's `.system`) are ignored.
+
+**Vault**
+Deleted skills are *moved* to `~/.config/skills-tui/vault` (with a `vault.json` manifest) rather than erased, so a purge can be undone. Symlinks are unlinked and recorded with their target; real directories are moved and restored in place. Restore also reinstates the skill's lock entry. Override the location with `SKILLS_TUI_VAULT`.
 
 **Skill Lock File**
 The `.skill-lock.json` file at `~/.agents/.skill-lock.json`. Tracks installed skills with their source repos, commit hashes, and install/update timestamps. Only persisted fields are written: source, sourceType, sourceUrl, skillPath, skillFolderHash, installedAt, updatedAt, latestCommitDate, pluginName. Runtime-only fields (diskPath, description, inferred) are never written to the lock.

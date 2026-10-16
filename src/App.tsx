@@ -1,17 +1,38 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Text, Box, useInput, useApp, useStdout } from 'ink';
-import { SkillWithMeta, Tab } from './types.js';
+import { SkillWithMeta, Tab, VaultEntry } from './types.js';
 import { loadSkills } from './data.js';
-import { removeSkills, updateSkills } from './actions.js';
+import { removeSkills, updateSkills, restoreSkills, loadVault } from './actions.js';
 
 const TABS: Tab[] = ['installed', 'updates', 'all'];
 const OVERHEAD_ROWS = 8;
+
+/** Compact agent badge that fits maxLen, e.g. "claude,codex+7" ('*' = project-local). */
+function agentBadge(locations: SkillWithMeta['locations'], maxLen: number): string {
+  if (!locations || locations.length === 0) return 'unknown';
+  const labels = Array.from(new Set(locations.map(l => (l.scope === 'project' ? `${l.agent}*` : l.agent))));
+  const shown: string[] = [];
+  for (const label of labels) {
+    if (shown.length > 0 && [...shown, label].join(',').length > maxLen) break;
+    shown.push(label);
+  }
+  const text = shown.join(',') + (shown.length < labels.length ? `+${labels.length - shown.length}` : '');
+  return text.length > maxLen ? text.slice(0, maxLen) : text;
+}
+
+type ConfirmState = { action: 'remove' | 'update' | 'restore'; skillNames: string[]; restorePaths?: string[] };
 
 export const App: React.FC = () => {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const terminalHeight = stdout?.rows ?? 40;
   const listHeight = Math.max(5, terminalHeight - OVERHEAD_ROWS);
+
+  // Column widths follow the terminal so rows do not wrap.
+  const avail = Math.max(40, (stdout?.columns ?? 100) - 26);
+  const nameW = Math.floor(avail * 0.34);
+  const agentW = Math.floor(avail * 0.22);
+  const srcW = avail - nameW - agentW;
 
   const [skills, setSkills] = useState<SkillWithMeta[]>([]);
   const [filteredSkills, setFilteredSkills] = useState<SkillWithMeta[]>([]);
@@ -22,9 +43,13 @@ export const App: React.FC = () => {
   const [searchMode, setSearchMode] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [detailSkillName, setDetailSkillName] = useState<string | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<{action: 'remove' | 'update'; skillNames: string[]} | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmState | null>(null);
   const [lastActionResult, setLastActionResult] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
+  const [vaultActive, setVaultActive] = useState(0);
+  const [vaultSelected, setVaultSelected] = useState<Set<string>>(new Set());
   const scrollOffset = useRef(0);
 
   // Refs for latest state in useInput callback
@@ -32,14 +57,18 @@ export const App: React.FC = () => {
     activeSkillName: null as string | null,
     filteredSkills: [] as SkillWithMeta[],
     searchMode: false,
-    confirmDialog: null as {action: 'remove' | 'update'; skillNames: string[]} | null,
+    confirmDialog: null as ConfirmState | null,
     showDetails: false,
     selectedNames: new Set<string>(),
     activeTab: 'all' as Tab,
     searchQuery: '',
     listHeight: 32,
+    vaultOpen: false,
+    vaultEntries: [] as VaultEntry[],
+    vaultActive: 0,
+    vaultSelected: new Set<string>(),
   });
-  refs.current = { activeSkillName, filteredSkills, searchMode, confirmDialog, showDetails, selectedNames, activeTab, searchQuery, listHeight };
+  refs.current = { activeSkillName, filteredSkills, searchMode, confirmDialog, showDetails, selectedNames, activeTab, searchQuery, listHeight, vaultOpen, vaultEntries, vaultActive, vaultSelected };
 
   // --- scroll-viewport helper: keep the active row inside the visible window ---
   const clampScrollForIndex = (targetIndex: number, total: number, lh: number) => {
@@ -109,13 +138,23 @@ export const App: React.FC = () => {
 
     if (r.confirmDialog) {
       if (input === 'y') {
-        const { action, skillNames } = r.confirmDialog;
+        const { action, skillNames, restorePaths } = r.confirmDialog;
         if (action === 'remove') {
           const result = removeSkills(skillNames);
           let msg = '';
-          if (result.success.length > 0) msg += `Removed: ${result.success.join(', ')}`;
+          if (result.success.length > 0) msg += `Vaulted: ${result.success.join(', ')}`;
           if (result.failed.length > 0) msg += (msg ? ' | ' : '') + `Failed: ${result.failed.join(', ')}`;
           setLastActionResult(msg || 'No skills removed');
+          reloadSkills();
+        } else if (action === 'restore') {
+          const result = restoreSkills(restorePaths ?? []);
+          let msg = '';
+          if (result.success.length > 0) msg += `Restored: ${result.success.join(', ')}`;
+          if (result.failed.length > 0) msg += (msg ? ' | ' : '') + `Failed: ${result.failed.join(', ')}`;
+          setLastActionResult(msg || 'Nothing restored');
+          setVaultEntries(loadVault());
+          setVaultSelected(new Set());
+          setVaultActive(0);
           reloadSkills();
         } else {
           const result = updateSkills(skillNames);
@@ -131,6 +170,50 @@ export const App: React.FC = () => {
       if (input === 'n' || key.escape) {
         setConfirmDialog(null);
         return;
+      }
+      return;
+    }
+
+    if (r.vaultOpen) {
+      const entries = r.vaultEntries;
+      if (key.escape) {
+        setVaultOpen(false);
+        return;
+      }
+      if (entries.length > 0) {
+        if (key.upArrow || input === 'k') {
+          setVaultActive(prev => (prev - 1 + entries.length) % entries.length);
+          return;
+        }
+        if (key.downArrow || input === 'j') {
+          setVaultActive(prev => (prev + 1) % entries.length);
+          return;
+        }
+        if (input === ' ') {
+          const p = entries[r.vaultActive]?.originalPath;
+          if (p) {
+            setVaultSelected(prev => {
+              const next = new Set(prev);
+              if (next.has(p)) next.delete(p); else next.add(p);
+              return next;
+            });
+          }
+          return;
+        }
+        if (input === 'a') {
+          setVaultSelected(prev => (prev.size === entries.length ? new Set() : new Set(entries.map(e => e.originalPath))));
+          return;
+        }
+        if (key.return || input === 'r') {
+          const paths = r.vaultSelected.size > 0
+            ? Array.from(r.vaultSelected)
+            : (entries[r.vaultActive] ? [entries[r.vaultActive].originalPath] : []);
+          if (paths.length > 0) {
+            const names = entries.filter(e => paths.includes(e.originalPath)).map(e => e.name);
+            setConfirmDialog({ action: 'restore', skillNames: names, restorePaths: paths });
+          }
+          return;
+        }
       }
       return;
     }
@@ -196,6 +279,21 @@ export const App: React.FC = () => {
           return next;
         });
       }
+      return;
+    }
+
+    if (input === 'a') {
+      const names = r.filteredSkills.map(s => s.name);
+      setSelected(names.length > 0 && names.every(n => r.selectedNames.has(n)) ? new Set() : new Set(names));
+      return;
+    }
+
+    if (input === 'r') {
+      const entries = loadVault();
+      setVaultEntries(entries);
+      setVaultSelected(new Set());
+      setVaultActive(0);
+      setVaultOpen(true);
       return;
     }
 
@@ -265,7 +363,74 @@ export const App: React.FC = () => {
 
   // ---- RENDER (all hooks are above, no conditional returns before this) ----
 
+  const confirmNode = confirmDialog ? (
+    <Box flexDirection="column" paddingX={4} paddingY={2} borderStyle="round" borderColor="yellow" marginTop={2}>
+      <Text bold>
+        {confirmDialog.action === 'remove' ? 'Vault' : confirmDialog.action === 'restore' ? 'Restore' : 'Update'} {confirmDialog.skillNames.length} skill(s)?
+      </Text>
+      <Box marginTop={1} marginBottom={1} flexDirection="column">
+        {confirmDialog.skillNames.slice(0, 8).map(n => (
+          <Text key={n} dimColor>  • {n}</Text>
+        ))}
+        {confirmDialog.skillNames.length > 8 && (
+          <Text dimColor>  ... and {confirmDialog.skillNames.length - 8} more</Text>
+        )}
+      </Box>
+      <Box flexDirection="row">
+        <Box marginRight={2}><Text color="green">[y] Yes</Text></Box>
+        <Text color="red">[n] No</Text>
+      </Box>
+    </Box>
+  ) : null;
+
   const detailSkill = showDetails && detailSkillName ? filteredSkills.find(s => s.name === detailSkillName) ?? null : null;
+
+  if (vaultOpen) {
+    const total = vaultEntries.length;
+    const activeIdx = Math.min(vaultActive, Math.max(0, total - 1));
+    const vStart = Math.max(0, Math.min(activeIdx - Math.floor(listHeight / 2), total - listHeight));
+    const vEnd = Math.min(Math.max(vStart, 0) + listHeight, total);
+    return (
+      <Box flexDirection="column">
+        <Box paddingX={1} paddingY={1} borderStyle="single" borderColor="dim">
+          <Text bold color="cyan">Vault</Text>
+          <Box marginLeft={2}><Text dimColor>Deleted skills are kept here — press Enter to restore</Text></Box>
+        </Box>
+
+        <Box flexDirection="column" paddingX={1} marginTop={1}>
+          {total === 0 && <Text dimColor>Vault is empty</Text>}
+          {vaultEntries.slice(vStart, vEnd).map((e, i) => {
+            const idx = vStart + i;
+            const isActive = idx === activeIdx;
+            const label = (e.scope === 'project' ? `${e.agent}*` : e.agent).slice(0, 16).padEnd(16);
+            return (
+              <Box key={e.originalPath} flexDirection="row">
+                <Text color={isActive ? 'cyan' : undefined} bold={isActive} inverse={isActive}>
+                  {isActive ? '▸ ' : '  '}{vaultSelected.has(e.originalPath) ? '[x]' : '[ ]'} {e.name.slice(0, 30).padEnd(30)} | {label} | {new Date(e.removedAt).toLocaleString()}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {lastActionResult && (
+          <Box paddingX={1} paddingY={1}><Text color="green">{lastActionResult}</Text></Box>
+        )}
+
+        <Box paddingX={1} borderStyle="single" borderColor="dim" marginTop={1}>
+          <Text dimColor>
+            {vaultSelected.size > 0 ? `Selected: ${vaultSelected.size} ` : ''}
+            {total} vaulted | {total === 0 ? 0 : activeIdx + 1}/{total}
+          </Text>
+          <Box marginLeft={2}>
+            <Text dimColor>j/k: Navigate | Space: Toggle | a: All | Enter/r: Restore | Esc: Close</Text>
+          </Box>
+        </Box>
+
+        {confirmNode}
+      </Box>
+    );
+  }
 
   if (detailSkill) {
     return (
@@ -273,6 +438,16 @@ export const App: React.FC = () => {
         <Text bold underline>{detailSkill.name}</Text>
         {detailSkill.description && <Box marginTop={1}><Text dimColor>Description:</Text><Text> {detailSkill.description}</Text></Box>}
         <Box marginTop={1}><Text dimColor>Path:</Text><Text> {detailSkill.diskPath}</Text></Box>
+        {detailSkill.locations && detailSkill.locations.length > 0 && (
+          <Box marginTop={1} flexDirection="column">
+            <Text dimColor>Locations ({detailSkill.locations.length}):</Text>
+            {detailSkill.locations.map(l => (
+              <Text key={l.path} dimColor>
+                {'  '}{l.agent}{l.scope === 'project' ? ' (project)' : ''}{l.isSymlink ? ' (symlink)' : ''} {'->'} {l.path}
+              </Text>
+            ))}
+          </Box>
+        )}
         {detailSkill.source && <Box><Text dimColor>Source:</Text><Text> {detailSkill.source}</Text></Box>}
         {detailSkill.sourceUrl && <Box><Text dimColor>Repo:</Text><Text> {detailSkill.sourceUrl}</Text></Box>}
         {detailSkill.skillPath && <Box><Text dimColor>Skill Path:</Text><Text> {detailSkill.skillPath}</Text></Box>}
@@ -322,7 +497,7 @@ export const App: React.FC = () => {
     <Box flexDirection="column">
       <Box paddingX={1} paddingY={1} borderStyle="single" borderColor="dim">
         <Text bold color="cyan">Skills Manager</Text>
-        <Box marginLeft={2}><Text dimColor>Interactive skill manager — ~/.agents/skills, ~/.config/opencode/skills, ~/.claude/skills, and project-local dirs</Text></Box>
+        <Box marginLeft={2}><Text dimColor>Skills across agent dirs — claude, codex, cursor, opencode, gemini and project-local. `r` for vault/restore.</Text></Box>
       </Box>
 
       {searchMode && (
@@ -355,15 +530,16 @@ export const App: React.FC = () => {
           const isActive = skill.name === activeSkillName;
           const indicator = isActive ? '▸ ' : '  ';
           const checkbox = isSelected ? '[x]' : '[ ]';
-          const name = skill.name.slice(0, 30).padEnd(30);
-          const source = (skill.source ?? 'unknown').slice(0, 30).padEnd(30);
+          const name = skill.name.slice(0, nameW).padEnd(nameW);
+          const agents = agentBadge(skill.locations, agentW).padEnd(agentW);
+          const source = (skill.source ?? 'unknown').slice(0, srcW).padEnd(srcW);
           const date = skill.updatedAt ? new Date(skill.updatedAt).toLocaleDateString() : '—';
           const updateIcon = skill.hasUpdate ? ' ↻' : '  ';
 
           return (
             <Box key={skill.name} flexDirection="row">
               <Text color={isActive ? 'cyan' : undefined} bold={isActive} inverse={isActive}>
-                {indicator}{checkbox} {name} | {source} | {date}{updateIcon}
+                {indicator}{checkbox} {name} | {agents} | {source} | {date}{updateIcon}
               </Text>
             </Box>
           );
@@ -388,24 +564,11 @@ export const App: React.FC = () => {
           {filteredSkills.length} skills | {activeIndex + 1}/{filteredSkills.length}
         </Text>
         <Box marginLeft={2}>
-          <Text dimColor>j/k or ↑↓: Navigate | Space: Toggle | Enter: Details | u: Update | d: Delete | /: Search | Tab: Tab | q: Quit</Text>
+          <Text dimColor>j/k: Move | Space: Toggle | a: All | Enter: Details | u: Update | d: Delete | r: Vault/Restore | /: Search | Tab: Tab | q: Quit</Text>
         </Box>
       </Box>
 
-      {confirmDialog && (
-        <Box flexDirection="column" paddingX={4} paddingY={2} borderStyle="round" borderColor="yellow" marginTop={2}>
-          <Text bold>{confirmDialog.action === 'remove' ? 'Remove' : 'Update'} {confirmDialog.skillNames.length} skill(s)?</Text>
-          <Box marginTop={1} marginBottom={1}>
-            {confirmDialog.skillNames.map(n => (
-              <Text key={n} dimColor>  • {n}</Text>
-            ))}
-          </Box>
-          <Box flexDirection="row">
-            <Box marginRight={2}><Text color="green">[y] Yes</Text></Box>
-            <Text color="red">[n] No</Text>
-          </Box>
-        </Box>
-      )}
+      {confirmNode}
     </Box>
   );
 };
