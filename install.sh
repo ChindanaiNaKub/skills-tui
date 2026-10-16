@@ -8,7 +8,7 @@
 #   SKILLS_TUI_HOME  install location   (default: ~/.local/share/skills-tui)
 #   SKILLS_TUI_BIN   launcher location  (default: ~/.local/bin)
 #   SKILLS_TUI_REF   git ref to install (default: master)
-#   SKILLS_TUI_REPO  git URL override  (default: github.com/ChindanaiNaKub/skills-tui)
+#   SKILLS_TUI_REPO  git URL override   (default: github.com/ChindanaiNaKub/skills-tui)
 
 set -eu
 
@@ -47,15 +47,48 @@ fi
   npm run build >/dev/null 2>&1 || die "build failed"
 )
 
+# Launcher: runs the app, and quietly self-updates in the background (at most
+# once a day) by pulling and atomically swapping in a fresh build.
 mkdir -p "$BIN_DIR"
 launcher="$BIN_DIR/skills-tui"
-cat > "$launcher" <<EOF
+sed "s|@INSTALL_DIR@|$INSTALL_DIR|g" > "$launcher" <<'EOF'
 #!/bin/sh
-exec node "$INSTALL_DIR/dist/index.js" "\$@"
+DIR="@INSTALL_DIR@"
+
+update() {
+  cd "$DIR" || return 1
+  git pull --ff-only -q || return 1
+  npm install --no-audit --no-fund >/dev/null 2>&1 || return 1
+  rm -rf dist.new
+  npx tsc --outDir dist.new >/dev/null 2>&1 || { rm -rf dist.new; return 1; }
+  rm -rf dist.old
+  mv dist dist.old 2>/dev/null || true
+  mv dist.new dist || { mv dist.old dist 2>/dev/null; return 1; }
+  rm -rf dist.old
+}
+
+case "${1:-}" in
+  --update) update && echo "skills-tui updated" ;;
+  --version|-v) node -p "require('$DIR/package.json').version" ;;
+  *) case "${SKILLS_TUI_NO_UPDATE:-}" in
+       "") if [ -d "$DIR/.git" ]; then
+             now=$(date +%s 2>/dev/null || echo 0)
+             last=$(cat "$DIR/.last-check" 2>/dev/null || echo 0)
+             if [ "$now" -gt 0 ] && [ $((now - last)) -gt 86400 ]; then
+               echo "$now" > "$DIR/.last-check" 2>/dev/null || true
+               if mkdir "$DIR/.update.lock" 2>/dev/null; then
+                 ( update </dev/null >/dev/null 2>&1; rmdir "$DIR/.update.lock" 2>/dev/null ) &
+               fi
+             fi
+           fi ;;
+     esac
+     exec node "$DIR/dist/index.js" "$@" ;;
+esac
 EOF
 chmod +x "$launcher"
+date +%s > "$INSTALL_DIR/.last-check" 2>/dev/null || true
 
-printf 'Done. Run: skills-tui\n'
+printf 'Done. Run: skills-tui  (self-updates in the background; SKILLS_TUI_NO_UPDATE=1 to disable)\n'
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) printf '\nAdd %s to your PATH:\n  export PATH="%s:$PATH"\n' "$BIN_DIR" "$BIN_DIR" ;;

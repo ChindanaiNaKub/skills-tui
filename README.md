@@ -10,7 +10,9 @@ Interactive terminal UI for managing AI agent skills. Browse, search, multi-sele
 curl -fsSL https://raw.githubusercontent.com/ChindanaiNaKub/skills-tui/master/install.sh | sh
 ```
 
-Installs to `~/.local/share/skills-tui` and drops a `skills-tui` launcher in `~/.local/bin`. Requires **Node.js 18+**. Re-run the same command to update. Override with `SKILLS_TUI_HOME`, `SKILLS_TUI_BIN`, `SKILLS_TUI_REF`, or `SKILLS_TUI_REPO`.
+Installs to `~/.local/share/skills-tui` and drops a `skills-tui` launcher in `~/.local/bin`. Requires **Node.js 18+**.
+
+The launcher **self-updates**: at most once a day it pulls the latest code and swaps in a fresh build in the background, so it never slows down or interrupts a run. Update on demand with `skills-tui --update`, check the version with `skills-tui --version`, or disable auto-update with `SKILLS_TUI_NO_UPDATE=1`. Override paths with `SKILLS_TUI_HOME`, `SKILLS_TUI_BIN`, `SKILLS_TUI_REF`, or `SKILLS_TUI_REPO`.
 
 Nothing is published to the npm registry — the installer clones the repo and builds it locally (dependencies are still fetched with `npm`).
 
