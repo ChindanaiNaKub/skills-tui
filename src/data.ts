@@ -1,19 +1,13 @@
-import { SkillLock, SkillLockEntry, Skill, SkillWithMeta } from './types.js';
+import { SkillLock, Skill, SkillWithMeta, SkillLocation } from './types.js';
 import { readFileSync, readdirSync, existsSync, realpathSync, lstatSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import { getSkillDirs } from './paths.js';
 
-const SKILL_LOCK_PATH = join(homedir(), '.agents', '.skill-lock.json');
-
-const SKILL_DIRS = [
-  join(homedir(), '.agents', 'skills'),
-  join(homedir(), '.config', 'opencode', 'skills'),
-  join(homedir(), '.claude', 'skills'),
-  join(process.cwd(), '.agents', 'skills'),
-  join(process.cwd(), '.claude', 'skills'),
-];
+// Overridable so tests/self-checks never touch the user's real lock.
+const SKILL_LOCK_PATH = process.env.SKILLS_TUI_LOCK || join(homedir(), '.agents', '.skill-lock.json');
 
 /** Try to get a command output; returns null on failure. */
 function tryExec(cmd: string): string | null {
@@ -81,6 +75,17 @@ function inferGitSource(realPath: string): { source: string; sourceType: 'github
   return { source: url, sourceType: 'git', sourceUrl: url.replace(/\.git$/, '') };
 }
 
+/** Per-real-path facts, cached so symlink fan-out does not repeat git/file reads. */
+interface DirInfo {
+  name?: string;
+  description?: string;
+  hash: string;
+  source: string;
+  sourceType: 'github' | 'git' | 'unknown';
+  sourceUrl?: string;
+  mtime: string;
+}
+
 export function loadSkills(): SkillWithMeta[] {
   // 1. Load lock
   let lock: SkillLock;
@@ -96,10 +101,9 @@ export function loadSkills(): SkillWithMeta[] {
 
   // Seed from lock entries
   for (const [name, entry] of Object.entries(lock.skills)) {
-    const defaultDiskPath = join(homedir(), '.agents', 'skills', name);
     runtimeMap.set(name, {
       name,
-      diskPath: defaultDiskPath,
+      diskPath: join(homedir(), '.agents', 'skills', name),
       source: entry.source,
       sourceType: entry.sourceType,
       sourceUrl: entry.sourceUrl,
@@ -110,26 +114,31 @@ export function loadSkills(): SkillWithMeta[] {
       latestCommitDate: entry.latestCommitDate,
       pluginName: entry.pluginName,
       inferred: false,
+      locations: [],
     });
   }
 
-  // Track seen real paths for dedup
-  const seenPaths = new Set<string>();
+  const seenPaths = new Set<string>(); // dedup identical paths (not real paths — one entry per agent dir)
+  const dirInfoCache = new Map<string, DirInfo>();
 
-  for (const dir of SKILL_DIRS) {
-    if (!existsSync(dir)) continue;
+  for (const dir of getSkillDirs()) {
+    if (!existsSync(dir.path)) continue;
 
     let entries;
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = readdirSync(dir.path, { withFileTypes: true });
     } catch {
       continue;
     }
 
     for (const entry of entries) {
       if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      if (entry.name.startsWith('.')) continue; // e.g. codex's .system — not a user skill
 
-      const fullPath = join(dir, entry.name);
+      const fullPath = join(dir.path, entry.name);
+      if (seenPaths.has(fullPath)) continue;
+      seenPaths.add(fullPath);
+
       let realPath: string;
       try {
         realPath = realpathSync(fullPath);
@@ -144,74 +153,75 @@ export function loadSkills(): SkillWithMeta[] {
         continue;
       }
 
-      // Dedup by real path — first dir wins
-      if (seenPaths.has(realPath)) continue;
-      seenPaths.add(realPath);
-
-      // Parse SKILL.md
-      const skillMdPath = join(realPath, 'SKILL.md');
-      let skillMdContent = '';
-      try {
-        skillMdContent = readFileSync(skillMdPath, 'utf-8');
-      } catch {
-        // No SKILL.md — still usable
-      }
-
-      const fm = parseFrontmatter(skillMdContent);
-      const name = fm.name || entry.name;
-      const description = fm.description;
-
-      // Infer git source
-      const gitInfo = inferGitSource(realPath);
-
-      // Compute folder hash
-      const skillFolderHash = computeFolderHash(realPath);
-
-      // Stat mtime for fallback dates
-      let mtime: string;
-      try {
-        mtime = statSync(realPath).mtime.toISOString();
-      } catch {
-        mtime = new Date().toISOString();
-      }
-
-      const defaultDiskPath = join(homedir(), '.agents', 'skills', name);
-      const existing = runtimeMap.get(name);
-      if (existing) {
-        // First discovered directory wins — only resolve default placeholder to real path
-        if (existing.diskPath === defaultDiskPath) {
-          existing.diskPath = realPath;
+      let info = dirInfoCache.get(realPath);
+      if (!info) {
+        let skillMdContent = '';
+        try {
+          skillMdContent = readFileSync(join(realPath, 'SKILL.md'), 'utf-8');
+        } catch {
+          // No SKILL.md — still usable
         }
-        if (description) existing.description = description;
-        // Do NOT overwrite source/sourceType/sourceUrl/skillPath/skillFolderHash/installedAt/updatedAt
-      } else {
-        // New inferred skill
-        runtimeMap.set(name, {
-          name,
-          diskPath: realPath,
+        const fm = parseFrontmatter(skillMdContent);
+        let mtime: string;
+        try {
+          mtime = statSync(realPath).mtime.toISOString();
+        } catch {
+          mtime = new Date().toISOString();
+        }
+        const gitInfo = inferGitSource(realPath);
+        info = {
+          name: fm.name,
+          description: fm.description,
+          hash: computeFolderHash(realPath),
           source: gitInfo.source,
           sourceType: gitInfo.sourceType,
           sourceUrl: gitInfo.sourceUrl,
-          skillPath: join(dir, entry.name),
-          skillFolderHash,
-          installedAt: mtime,
-          updatedAt: mtime,
-          description,
+          mtime,
+        };
+        dirInfoCache.set(realPath, info);
+      }
+
+      const name = info.name || entry.name;
+      const location: SkillLocation = {
+        path: fullPath,
+        realPath,
+        agent: dir.agent,
+        scope: dir.scope,
+        isSymlink: entry.isSymbolicLink(),
+      };
+
+      const existing = runtimeMap.get(name);
+      if (existing) {
+        // Keep every agent location; never overwrite lock-sourced fields.
+        (existing.locations ??= []).push(location);
+        if (!existing.description && info.description) existing.description = info.description;
+      } else {
+        runtimeMap.set(name, {
+          name,
+          diskPath: fullPath,
+          source: info.source,
+          sourceType: info.sourceType,
+          sourceUrl: info.sourceUrl,
+          skillPath: fullPath,
+          skillFolderHash: info.hash,
+          installedAt: info.mtime,
+          updatedAt: info.mtime,
+          description: info.description,
           inferred: true,
+          locations: [location],
         });
       }
     }
   }
 
-  // Convert to sorted array with SkillWithMeta
-  const skills: SkillWithMeta[] = Array.from(runtimeMap.values())
+  // Convert to sorted array; prefer a real (non-symlink) directory as the primary path.
+  return Array.from(runtimeMap.values())
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map(s => ({
-      ...s,
-      hasUpdate: false,
-    }));
-
-  return skills;
+    .map(s => {
+      const locations = s.locations ?? [];
+      const primary = locations.find(l => !l.isSymlink) ?? locations[0];
+      return { ...s, locations, diskPath: primary ? primary.path : s.diskPath, hasUpdate: false };
+    });
 }
 
 export function getSkillLockPath(): string {
